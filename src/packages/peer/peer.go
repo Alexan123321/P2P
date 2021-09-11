@@ -127,21 +127,11 @@ func (p *Peer) connect(ip string, port string) {
 		return
 	}
 	defer conn.Close()
-	p.printDetails()
+	fmt.Println("Listening on address " + ip + ":" + port)
 	go p.readClient(conn)
 	go p.writeClient(conn)
 	go p.unicastMsg(conn)
 	for {}
-}
-
-/* Print details method of client */
-func (p *Peer) printDetails() {
-	name, _ := os.Hostname()
-	addrs, _ := net.LookupHost(name)
-	for _, addr := range addrs {
-	fmt.Println("My IP address: " + addr)
-	fmt.Println("My port: " + p.inPort)
-	}
 }
 
 /* Read method of client */

@@ -1,6 +1,6 @@
 /**
-BY: Henrik Tambo Buhl & Alexander Stæhr Johansen
-DATE: 10-09-2021
+BY: Deyana Atanasova, Henrik Tambo Buhl & Alexander Stæhr Johansen 
+DATE: 12-09-2021 (revised)
 COURSE: Distributed Systems and Security
 DESCRIPTION: Distributed chat implemented as structured P2P flooding network.
 **/
@@ -52,7 +52,6 @@ type msgType struct {
 /	- connect(ip string, port string): connects the peer to the peer with the IP and port provided by the user.
 /	  The client can ONLY connect to one peer at a time.
 /	  IF the destination is faulty, the peer connects to itself.
-/	- printDetails(): prints the IP and the port of the peer itself. 
 /	- readClient(): reads messages received from the network.
 /	- writeClient(): writes messages from the user to the network.
 /	- unicastMsg(): unicasts a message written by the user to a SINGLE peer.

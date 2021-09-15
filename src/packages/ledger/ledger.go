@@ -14,47 +14,41 @@ type Transaction struct {
 }
 
 type Ledger struct {
-	Accounts   map[string]int
-	ledgerLock sync.Mutex
+	Accounts map[string]int
+	lock     sync.Mutex
 }
 
-func MakeLedger() Ledger {
-	ledger := Ledger{}
+func MakeLedger() *Ledger {
+	ledger := new(Ledger)
 	ledger.Accounts = make(map[string]int)
 	return ledger
 }
 
-func (l *Ledger) Transaction(t Transaction) {
-	l.ledgerLock.Lock()
-	l.Accounts[t.From] -= t.Amount
-	l.ledgerLock.Unlock()
-	l.test(t)
-}
-
-func (l *Ledger) test(t Transaction) {
-	l.ledgerLock.Lock()
-	l.Accounts[t.To] += t.Amount
-	l.ledgerLock.Unlock()
+func (ledger *Ledger) Transaction(transaction Transaction) {
+	ledger.lock.Lock()
+	defer ledger.lock.Unlock()
+	ledger.Accounts[transaction.From] -= transaction.Amount
+	ledger.Accounts[transaction.To] += transaction.Amount
 }
 
 // Must be called to check if an account is in the system
-func (l *Ledger) ContainsAccount(account string) bool {
-	l.ledgerLock.Lock()
-	_, found := l.Accounts[account]
-	l.ledgerLock.Unlock()
+func (ledger *Ledger) ContainsAccount(account string) bool {
+	ledger.lock.Lock()
+	_, found := ledger.Accounts[account]
+	ledger.lock.Unlock()
 	return found
 }
 
-func (l *Ledger) InsertAccount(account string) {
-	l.ledgerLock.Lock()
-	l.Accounts[account] = 0
-	l.ledgerLock.Unlock()
+func (ledger *Ledger) InsertAccount(account string) {
+	ledger.lock.Lock()
+	ledger.Accounts[account] = 0
+	ledger.lock.Unlock()
 }
 
-func (l *Ledger) PrintLedger() {
-	l.ledgerLock.Lock()
-	for account, amount := range l.Accounts {
+func (ledger *Ledger) PrintLedger() {
+	ledger.lock.Lock()
+	for account, amount := range ledger.Accounts {
 		fmt.Println("Account name: " + account + " amount: " + strconv.Itoa(amount))
 	}
-	l.ledgerLock.Unlock()
+	ledger.lock.Unlock()
 }

@@ -40,64 +40,66 @@ type Peer struct {
 	ln               net.Listener
 	transactionsMade map[string]bool
 	encLedger        map[net.Conn]gob.Encoder
-	ledger           ledger.Ledger
+	ledger           *ledger.Ledger
 	lock             sync.Mutex
 	peers            []string
 }
 
 /* Initialize peer */
-func (p *Peer) StartPeer() {
+func (peer *Peer) StartPeer() {
 	fmt.Println("Please enter IP to connect to:")
-	fmt.Scanln(&p.outIP)
+	fmt.Scanln(&peer.outIP)
 	fmt.Println("Please enter port to connect to:")
-	fmt.Scanln(&p.outPort)
+	fmt.Scanln(&peer.outPort)
 
-	ln, _ := net.Listen("tcp", ":")
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	p.inPort = port
-	p.inIP = "127.0.0.69"
-	p.ln = ln
-	p.broadcast = make(chan string)
-	p.transactionsMade = make(map[string]bool)
-	p.encLedger = make(map[net.Conn]gob.Encoder)
-	p.ledger = ledger.MakeLedger()
+	ln, _ := net.Listen("tcp", "127.0.0.1:")
+	ip, port, _ := net.SplitHostPort(ln.Addr().String())
+	peer.ln = ln
+	peer.inIP = ip
+	peer.inPort = port
+	peer.broadcast = make(chan string)
+	peer.transactionsMade = make(map[string]bool)
+	peer.encLedger = make(map[net.Conn]gob.Encoder)
+	peer.ledger = ledger.MakeLedger()
 
-	p.connect(p.ln, p.outIP, p.outPort)
+	peer.connect(peer.ln, peer.outIP, peer.outPort)
 }
 
 /* Accept connection method */
-func (p *Peer) connect(ln net.Listener, ip, port string) {
+func (peer *Peer) connect(ln net.Listener, ip, port string) {
+	fmt.Println("Attempting connection to peer " + ip + ":" + port)
 	conn, err := net.Dial("tcp", ip+":"+port)
 	if err != nil {
-		fmt.Println("Error at peer destination... Connecting to own network...")
-		defer p.connect(p.ln, p.inIP, p.inPort)
+		fmt.Println("Error at peer destination. Connecting to own network...")
+		defer peer.connect(peer.ln, peer.inIP, peer.inPort)
 		return
 	}
 	defer conn.Close()
-	p.encLedger[conn] = *gob.NewEncoder(conn)
-	p.printDetails()
-	go p.read(conn)
-	go p.write(conn)
-	go p.broadcastMsg()
+	peer.encLedger[conn] = *gob.NewEncoder(conn)
+	peer.printDetails()
+	go peer.read(conn)
+	go peer.write(conn)
+	go peer.broadcastMsg()
 	defer ln.Close()
 	for {
 		conn, _ := ln.Accept()
-		fmt.Println("Got a connection...")
+		fmt.Println("Got a connection from " + conn.RemoteAddr().String())
 		//Her skal du indsætte en decoder, så den anden peer kan sende sin ledger
 		//eller bare forwarde ledger'eren til peer'en direkte...
-		p.encLedger[conn] = *gob.NewEncoder(conn)
-		go p.read(conn)
+		peer.addToPeers(conn.RemoteAddr().String())
+		peer.encLedger[conn] = *gob.NewEncoder(conn)
+		go peer.read(conn)
 	}
 }
 
 /* Print details method of client */
-func (p *Peer) printDetails() {
-	ip, port, _ := net.SplitHostPort(p.ln.Addr().String())
+func (peer *Peer) printDetails() {
+	ip, port, _ := net.SplitHostPort(peer.ln.Addr().String())
 	fmt.Println("Listening on address " + ip + ":" + port)
 }
 
 /* Read method of server */
-func (p *Peer) read(conn net.Conn) {
+func (peer *Peer) read(conn net.Conn) {
 	defer conn.Close()
 	transaction := &ledger.Transaction{}
 	dec := gob.NewDecoder(conn)
@@ -105,7 +107,7 @@ func (p *Peer) read(conn net.Conn) {
 	for {
 		err := dec.Decode(transaction)
 		if err == io.EOF {
-			p.acceptDisconnect(conn)
+			peer.acceptDisconnect(conn)
 			return
 		}
 
@@ -113,34 +115,34 @@ func (p *Peer) read(conn net.Conn) {
 			log.Println(err.Error())
 			return
 		}
-		p.handleTransaction(*transaction)
+		peer.handleTransaction(*transaction)
 	}
 }
 
 /* Handle transaction */
-func (p *Peer) handleTransaction(transaction ledger.Transaction) {
-	if p.locateTransaction(transaction) == false {
-		p.addTransaction(transaction)
-		p.ledger.Transaction(transaction)
-		defer p.ledger.PrintLedger()
+func (peer *Peer) handleTransaction(transaction ledger.Transaction) {
+	if peer.locateTransaction(transaction) == false {
+		peer.addTransaction(transaction)
+		peer.ledger.Transaction(transaction)
+		defer peer.ledger.PrintLedger()
 	}
 }
 
-func (p *Peer) locateTransaction(transaction ledger.Transaction) bool {
-	p.lock.Lock()
-	_, found := p.transactionsMade[transaction.ID]
-	p.lock.Unlock()
+func (peer *Peer) locateTransaction(transaction ledger.Transaction) bool {
+	peer.lock.Lock()
+	_, found := peer.transactionsMade[transaction.ID]
+	peer.lock.Unlock()
 	return found
 }
 
-func (p *Peer) addTransaction(transaction ledger.Transaction) {
-	p.lock.Lock()
-	p.transactionsMade[transaction.ID] = true
-	p.lock.Unlock()
+func (peer *Peer) addTransaction(transaction ledger.Transaction) {
+	peer.lock.Lock()
+	peer.transactionsMade[transaction.ID] = true
+	peer.lock.Unlock()
 }
 
 /* Write method for client */
-func (p *Peer) write(conn net.Conn) {
+func (peer *Peer) write(conn net.Conn) {
 	fmt.Println("Please make transactions in the format: AMOUNT FROM TO followed by an empty character!")
 	for {
 		fmt.Print("> ")
@@ -149,15 +151,15 @@ func (p *Peer) write(conn net.Conn) {
 		if err != nil || m == "quit\n" {
 			return
 		}
-		p.broadcast <- m
+		peer.broadcast <- m
 	}
 }
 
 /* Accept disconnect */
-func (p *Peer) acceptDisconnect(conn net.Conn) {
-	for conn, _ := range p.encLedger {
+func (peer *Peer) acceptDisconnect(conn net.Conn) {
+	for conn, _ := range peer.encLedger {
 		if conn == conn {
-			delete(p.encLedger, conn)
+			delete(peer.encLedger, conn)
 			return
 		}
 	}
@@ -166,10 +168,10 @@ func (p *Peer) acceptDisconnect(conn net.Conn) {
 }
 
 /* Broadcast handler */
-func (p *Peer) broadcastMsg() {
+func (peer *Peer) broadcastMsg() {
 	var i int
 	for {
-		inpString := strings.Split(<-p.broadcast, " ")
+		inpString := strings.Split(<-peer.broadcast, " ")
 		amount, _ := strconv.Atoi(inpString[0])
 		transaction := &ledger.Transaction{
 			ID:     inpString[1] + strconv.Itoa(i),
@@ -177,8 +179,13 @@ func (p *Peer) broadcastMsg() {
 			To:     inpString[2],
 			Amount: amount}
 		i++
-		for _, enc := range p.encLedger {
+		for _, enc := range peer.encLedger {
 			enc.Encode(transaction)
 		}
 	}
+}
+
+func (peer *Peer) addToPeers(address string) {
+	peer.peers = append(peer.peers, address)
+	fmt.Printf("List of peers: %v\n", peer.peers)
 }

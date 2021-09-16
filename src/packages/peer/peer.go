@@ -10,7 +10,7 @@ package peer
 import (
 	"after_feedback/src/packages/ledger"
 	"bufio"
-	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -20,11 +20,6 @@ import (
 	"strings"
 	"sync"
 )
-
-/* Message struct */
-type msgType struct {
-	Msg string
-}
 
 /******************/
 /* MAKE INTERFACE */
@@ -39,10 +34,15 @@ type Peer struct {
 	broadcast        chan string
 	ln               net.Listener
 	transactionsMade map[string]bool
-	encLedger        map[net.Conn]gob.Encoder
+	encLedger        map[net.Conn]json.Encoder
 	ledger           *ledger.Ledger
 	lock             sync.Mutex
-	peers            []string
+	peers            Peers
+}
+
+type Peers struct {
+	Type      string
+	peersList []string
 }
 
 /* Initialize peer */
@@ -59,9 +59,10 @@ func (peer *Peer) StartPeer() {
 	peer.inPort = port
 	peer.broadcast = make(chan string)
 	peer.transactionsMade = make(map[string]bool)
-	peer.encLedger = make(map[net.Conn]gob.Encoder)
+	peer.encLedger = make(map[net.Conn]json.Encoder)
 	peer.ledger = ledger.MakeLedger()
-
+	peer.peers.Type = "peers"
+	peer.peers.peersList = make([]string, 0)
 	peer.connect(peer.ln, peer.outIP, peer.outPort)
 }
 
@@ -75,7 +76,7 @@ func (peer *Peer) connect(ln net.Listener, ip, port string) {
 		return
 	}
 	defer conn.Close()
-	peer.encLedger[conn] = *gob.NewEncoder(conn)
+	peer.encLedger[conn] = *json.NewEncoder(conn)
 	peer.printDetails()
 	go peer.read(conn)
 	go peer.write(conn)
@@ -84,10 +85,10 @@ func (peer *Peer) connect(ln net.Listener, ip, port string) {
 	for {
 		conn, _ := ln.Accept()
 		fmt.Println("Got a connection from " + conn.RemoteAddr().String())
-		//Her skal du indsætte en decoder, så den anden peer kan sende sin ledger
-		//eller bare forwarde ledger'eren til peer'en direkte...
+		peer.encLedger[conn] = *json.NewEncoder(conn)
+		//enc := peer.encLedger[conn]
+		//enc.Encode(peer.peers)
 		peer.addToPeers(conn.RemoteAddr().String())
-		peer.encLedger[conn] = *gob.NewEncoder(conn)
 		go peer.read(conn)
 	}
 }
@@ -101,21 +102,21 @@ func (peer *Peer) printDetails() {
 /* Read method of server */
 func (peer *Peer) read(conn net.Conn) {
 	defer conn.Close()
-	transaction := &ledger.Transaction{}
-	dec := gob.NewDecoder(conn)
-
+	var temp map[string]interface{}
+	decoder := json.NewDecoder(conn)
 	for {
-		err := dec.Decode(transaction)
+		err := decoder.Decode(&temp)
 		if err == io.EOF {
 			peer.acceptDisconnect(conn)
 			return
 		}
-
 		if err != nil {
 			log.Println(err.Error())
 			return
 		}
-		peer.handleTransaction(*transaction)
+		var message = parse(temp)
+		fmt.Println(message)
+		//peer.handleTransaction(*transaction)
 	}
 }
 
@@ -174,6 +175,7 @@ func (peer *Peer) broadcastMsg() {
 		inpString := strings.Split(<-peer.broadcast, " ")
 		amount, _ := strconv.Atoi(inpString[0])
 		transaction := &ledger.Transaction{
+			Type:   "transaction",
 			ID:     inpString[1] + strconv.Itoa(i),
 			From:   inpString[1],
 			To:     inpString[2],
@@ -186,6 +188,34 @@ func (peer *Peer) broadcastMsg() {
 }
 
 func (peer *Peer) addToPeers(address string) {
-	peer.peers = append(peer.peers, address)
-	fmt.Printf("List of peers: %v\n", peer.peers)
+	peer.peers.peersList = append(peer.peers.peersList, address)
+	fmt.Printf("List of peers: %v\n", peer.peers.peersList)
+}
+
+func parse(temp map[string]interface{}) interface{} {
+	objectType, _ := temp["Type"]
+	switch objectType {
+	case "transaction":
+		transaction := &ledger.Transaction{}
+		transaction.ID = temp["ID"].(string)
+		transaction.From = temp["From"].(string)
+		transaction.To = temp["To"].(string)
+		transaction.Amount = int(temp["Amount"].(float64))
+		fmt.Println("Deserialized transaction")
+		return transaction
+	case "ledger":
+		ledger := &ledger.Ledger{}
+		ledger.Accounts = temp["Accounts"].(map[string]int)
+		fmt.Println("Deserialized ledger")
+		return ledger
+	case "peers":
+		peers := &Peers{}
+		peers.peersList = temp["peers"].([]string)
+		fmt.Println("Deserialized peers")
+		return peers
+	default:
+		fmt.Println("Error... Type conversion could not be performed...")
+		fmt.Println(temp)
+		return 0
+	}
 }

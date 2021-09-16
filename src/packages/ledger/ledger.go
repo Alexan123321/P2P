@@ -7,6 +7,7 @@ import (
 )
 
 type Transaction struct {
+	Type   string
 	ID     string
 	From   string
 	To     string
@@ -14,6 +15,7 @@ type Transaction struct {
 }
 
 type Ledger struct {
+	Type     string
 	Accounts map[string]int
 	lock     sync.Mutex
 }

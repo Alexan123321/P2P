@@ -1,3 +1,10 @@
+/**
+BY: Deyana Atanasova, Henrik Tambo Buhl & Alexander Stæhr Johansen
+DATE: 18-09-2021
+COURSE: Distributed Systems and Security
+DESCRIPTION: Distributed transaction system implemented as structured P2P flooding network.
+**/
+
 package ledger
 
 import (
@@ -6,47 +13,39 @@ import (
 	"sync"
 )
 
-type Transaction struct {
-	Type   string
-	ID     string
-	From   string
-	To     string
-	Amount int
+/* Transaction struct */
+type SignedTransaction struct {
+	Type      string
+	ID        string
+	From      string
+	To        string
+	Amount    int
+	Signature string
 }
 
+/* Ledger struct */
 type Ledger struct {
 	Type     string
 	Accounts map[string]int
 	lock     sync.Mutex
 }
 
+/* Ledger constructor */
 func MakeLedger() *Ledger {
 	ledger := new(Ledger)
 	ledger.Accounts = make(map[string]int)
 	return ledger
 }
 
-func (ledger *Ledger) Transaction(transaction Transaction) {
+/* Transaction method */
+func (ledger *Ledger) Transaction(transaction SignedTransaction) {
 	ledger.lock.Lock()
 	defer ledger.lock.Unlock()
 	ledger.Accounts[transaction.From] -= transaction.Amount
 	ledger.Accounts[transaction.To] += transaction.Amount
 }
 
-// Must be called to check if an account is in the system
-func (ledger *Ledger) ContainsAccount(account string) bool {
-	ledger.lock.Lock()
-	_, found := ledger.Accounts[account]
-	ledger.lock.Unlock()
-	return found
-}
-
-func (ledger *Ledger) InsertAccount(account string) {
-	ledger.lock.Lock()
-	ledger.Accounts[account] = 0
-	ledger.lock.Unlock()
-}
-
+/* Print ledger method */
 func (ledger *Ledger) PrintLedger() {
 	ledger.lock.Lock()
 	for account, amount := range ledger.Accounts {

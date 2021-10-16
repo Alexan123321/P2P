@@ -29,14 +29,14 @@ const e = 3
 /* Message struct containing list of peers */
 type PeersMapMsg struct {
 	Type     string
-	peersMap map[string]RSA.Key
+	peersMap map[string]string
 }
 
 /* Message struct containing address of new peer */
 type NewPeerMsg struct {
 	Type      string
 	Address   string
-	PublicKey RSA.Key
+	PublicKey string
 }
 
 /* Peer struct */
@@ -52,8 +52,8 @@ type Peer struct {
 	ledger           *ledger.Ledger
 	lock             sync.Mutex
 	peers            PeersMapMsg
-	privateKey       RSA.Key //TODO: these should all be strings
-	publicKey        RSA.Key
+	privateKey       string
+	publicKey        string
 }
 
 /* Initialize peer method */
@@ -76,16 +76,17 @@ func (peer *Peer) StartPeer() {
 	peer.ledger = ledger.MakeLedger()
 
 	peer.peers.Type = "peersMap"
-	peer.peers.peersMap = make(map[string]RSA.Key, 0)
+	peer.peers.peersMap = make(map[string]string, 0)
 
 	k := RSA.GenerateRandomK()
 	e := 3
 	publicKey, privateKey := RSA.KeyGen(k, e)
-	peer.privateKey = privateKey
-	peer.publicKey = publicKey
+	peer.privateKey = privateKey.ToString()
+	peer.publicKey = publicKey.ToString()
 
 	/* Print address for connectivity */
 	peer.printDetails()
+	fmt.Println("address: " + peer.inIP + ":" + peer.inPort + "has key " + peer.publicKey)
 
 	/* Initialize connection and routines */
 	peer.connect(peer.outIP + ":" + peer.outPort)
@@ -129,6 +130,8 @@ func (peer *Peer) acceptConnect() {
 		/* Forward local list of peers */
 		jsonString, _ := json.Marshal(peer.peers)
 		conn.Write(jsonString)
+
+		fmt.Println(peer.inIP + ": " + peer.inPort + " sending map of peers " + string(jsonString))
 
 		/* Start reading input from the connection */
 		go peer.read(conn)
@@ -207,7 +210,7 @@ func (peer *Peer) handlePeersMap(peersMap PeersMapMsg) {
 	/* Otherwise store the received map */
 	peer.peers = peersMap //TODO: connect to last 10 peers
 	if peer.peers.peersMap == nil {
-		peer.peers.peersMap = make(map[string]RSA.Key, 0)
+		peer.peers.peersMap = make(map[string]string, 0) //TODO:i think this is unnecessary
 	}
 
 	/* If there are more than 10 peers on list,
@@ -293,8 +296,9 @@ func (peer *Peer) write() {
 		hashedMessage := RSA.ByteArrayToInt(RSA.HashMessage(signedTransaction.Transaction.ToBytes()))
 
 		/* Generate RSA signature, */
-		signature := RSA.GenerateSignature(hashedMessage, peer.privateKey)
-		signedTransaction.Signature = signature
+		privateKey := RSA.ToKey(peer.privateKey)
+		signature := RSA.GenerateSignature(hashedMessage, privateKey)
+		signedTransaction.Signature = signature.String()
 
 		/* and broadcast it */
 		jsonString, _ := json.Marshal(signedTransaction)

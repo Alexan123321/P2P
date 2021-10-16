@@ -27,12 +27,19 @@ type Key struct {
 }
 
 /* Encode key to string */
-func (k *Key) ToString() string {
-	out, err := json.Marshal(k)
+func (key *Key) ToString() string {
+	out, err := json.Marshal(key)
 	if err != nil {
 		panic(err)
 	}
 	return string(out)
+}
+
+/* Decode string to key */
+func ToKey(keyString string) Key {
+	var key Key
+	json.Unmarshal([]byte(keyString), &key)
+	return key
 }
 
 /* Generate pseudo-random k (bit-length of the key)*/
@@ -132,9 +139,12 @@ func GenerateSignature(hashedMessage *big.Int, publicKey Key) *big.Int {
 }
 
 /* Verify signature */
-func VerifySignature(hashedMessage *big.Int, ciphertext *big.Int, privateKey Key) bool {
+func VerifySignature(hashedMessage *big.Int, ciphertext *big.Int, publicKeyString string) bool {
+	/* Decode key */
+	publicKey := ToKey(publicKeyString)
+
 	/* Decrypt signature */
-	decryptedHashedMessage := Decrypt(ciphertext, privateKey)
+	decryptedHashedMessage := Decrypt(ciphertext, publicKey) //TODO: make sure right key
 
 	/* Compare the hashed message and the hash of the message from the signature */
 	if hashedMessage.Cmp(decryptedHashedMessage) == 0 {

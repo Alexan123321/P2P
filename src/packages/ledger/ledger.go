@@ -19,17 +19,17 @@ import (
 )
 
 type Transaction struct {
-	ID     string  // ID of the transaction
-	From   RSA.Key // Sender of the transaction(RSA encoded public key)
-	To     RSA.Key // Receiver of the transaction(RSA encoded public key)
-	Amount int     // Amount to transfer
+	ID     string // ID of the transaction
+	From   string // Sender of the transaction(RSA encoded public key)
+	To     string // Receiver of the transaction(RSA encoded public key)
+	Amount int    // Amount to transfer
 }
 
 /* Signed transaction struct */
 type SignedTransaction struct {
 	Type        string      // signedTransaction
 	Transaction Transaction // Transaction
-	Signature   *big.Int    // Signature of the transaction
+	Signature   string      // Signature of the transaction
 }
 
 func (transaction *Transaction) ToBytes() []byte {
@@ -45,14 +45,14 @@ func (transaction *Transaction) ToBytes() []byte {
 /* Ledger struct */
 type Ledger struct {
 	Type     string
-	Accounts map[RSA.Key]int
+	Accounts map[string]int
 	lock     sync.Mutex
 }
 
 /* Ledger constructor */
 func MakeLedger() *Ledger {
 	ledger := new(Ledger)
-	ledger.Accounts = make(map[RSA.Key]int)
+	ledger.Accounts = make(map[string]int)
 	return ledger
 }
 
@@ -68,17 +68,22 @@ func (ledger *Ledger) Transaction(signedTransaction SignedTransaction) {
 func (ledger *Ledger) PrintLedger() {
 	ledger.lock.Lock()
 	for account, amount := range ledger.Accounts {
-		fmt.Println("Account name: " + account.N.String() + " amount: " + strconv.Itoa(amount))
+		fmt.Println("Account name: " + account + " amount: " + strconv.Itoa(amount))
 	}
 	ledger.lock.Unlock()
 }
 
-func (signedTransaction *SignedTransaction) VerifySignedTransaction(peersMap map[string]RSA.Key) bool {
+func (signedTransaction *SignedTransaction) VerifySignedTransaction(peersMap map[string]string) bool {
 	/* Hash transaction with SHA-256 and get integer representation of hash, */
 	hashedMessage := RSA.ByteArrayToInt(RSA.HashMessage(signedTransaction.Transaction.ToBytes()))
+
+	/* Convert the signature to a big.Int */
+	signature := new(big.Int).SetBytes([]byte(signedTransaction.Signature))
+
 	/* Verify RSA signature */
 	for _, publicKey := range peersMap {
-		valid := RSA.VerifySignature(hashedMessage, signedTransaction.Signature, publicKey)
+		fmt.Println("Verifying for key " + publicKey)
+		valid := RSA.VerifySignature(hashedMessage, signature, publicKey)
 		if valid {
 			return true
 		}

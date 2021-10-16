@@ -15,6 +15,7 @@ package RSA
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"math/big"
 )
@@ -23,6 +24,15 @@ import (
 type Key struct {
 	N      *big.Int
 	E_or_d *big.Int
+}
+
+/* Encode key to string */
+func (k *Key) ToString() string {
+	out, err := json.Marshal(k)
+	if err != nil {
+		panic(err)
+	}
+	return string(out)
 }
 
 /* Generate pseudo-random k (bit-length of the key)*/

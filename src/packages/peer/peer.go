@@ -200,9 +200,9 @@ func (peer *Peer) handleRead(temp map[string]interface{}) {
 /* Handle peer map method */
 func (peer *Peer) handlePeersMap(peersMap PeersMapMsg) {
 	/* If peer already has a map, return */
-	if len(peer.peers.peersMap) != 0 {
+	/* if len(peer.peers.peersMap) != 0 {
 		return
-	}
+	} */
 
 	/* Otherwise store the received map */
 	peer.peers = peersMap //TODO: connect to last 10 peers
@@ -229,6 +229,7 @@ func (peer *Peer) handlePeersMap(peersMap PeersMapMsg) {
 	it broadcasts its presence after having connectde to the previous 10 peers */
 	newPeer := &NewPeerMsg{Type: "newPeer"}
 	newPeer.Address = peer.inIP + ":" + peer.inPort
+	newPeer.PublicKey = peer.publicKey
 	jsonString, _ := json.Marshal(newPeer)
 	peer.broadcast <- jsonString
 }
@@ -316,6 +317,13 @@ func (peer *Peer) broadcastMsg() {
 func (peer *Peer) printDetails() {
 	ip, port, _ := net.SplitHostPort(peer.ln.Addr().String())
 	fmt.Println("Listening on address " + ip + ":" + port)
+}
+
+func printPeersMap(peersMap map[string]RSA.Key) {
+	for k, v := range peersMap {
+		fmt.Println("Address: " + k)
+		fmt.Println("Public key of " + k + ":" + v.ToString())
+	}
 }
 
 /* Locate transaction method */

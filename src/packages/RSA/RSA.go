@@ -122,14 +122,16 @@ func GenerateSignature(hashedMessage *big.Int, publicKey Key) *big.Int {
 }
 
 /* Verify signature */
-func VerifySignature(hashedMessage *big.Int, ciphertext *big.Int, privateKey Key) {
+func VerifySignature(hashedMessage *big.Int, ciphertext *big.Int, privateKey Key) bool {
 	/* Decrypt signature */
 	decryptedHashedMessage := Decrypt(ciphertext, privateKey)
 
 	/* Compare the hashed message and the hash of the message from the signature */
 	if hashedMessage.Cmp(decryptedHashedMessage) == 0 {
 		fmt.Println("Message hash and decrypted message hash match.")
+		return true
 	} else {
 		fmt.Println("Message hash and decrypted message hash do not match.")
+		return false
 	}
 }

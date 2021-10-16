@@ -1,6 +1,6 @@
 /**
 BY: Deyana Atanasova, Henrik Tambo Buhl & Alexander Stæhr Johansen
-DATE: 18-09-2021
+DATE: 16-10-2021
 COURSE: Distributed Systems and Security
 DESCRIPTION: Distributed transaction system implemented as structured P2P flooding network.
 **/
@@ -8,8 +8,8 @@ DESCRIPTION: Distributed transaction system implemented as structured P2P floodi
 package peer
 
 import (
+	"after_feedback/src/packages/RSA"
 	"after_feedback/src/packages/ledger"
-	"after_feedback/src/packages/rsa"
 	"bufio"
 	"encoding/json"
 	"fmt"
@@ -27,17 +27,16 @@ const MAX_CON = 10
 const e = 3
 
 /* Message struct containing list of peers */
-type Msg_peerslist struct {
-	Type string
-	List []string
-	//ListwKeys map[string][string]
+type PeersMapMsg struct {
+	Type     string
+	peersMap map[string]RSA.Key
 }
 
 /* Message struct containing address of new peer */
-type Msg_newpeer struct {
-	Type    string
-	Address string
-	//PublicKey string
+type NewPeerMsg struct {
+	Type      string
+	Address   string
+	PublicKey RSA.Key
 }
 
 /* Peer struct */
@@ -52,9 +51,9 @@ type Peer struct {
 	connections      map[string]net.Conn
 	ledger           *ledger.Ledger
 	lock             sync.Mutex
-	peers            Msg_peerslist
-	publicKey        rsa.Key
-	privateKey       rsa.Key
+	peers            PeersMapMsg
+	privateKey       RSA.Key //TODO: these should all be strings
+	publicKey        RSA.Key
 }
 
 /* Initialize peer method */
@@ -75,9 +74,15 @@ func (peer *Peer) StartPeer() {
 	peer.transactionsMade = make(map[string]bool)
 	peer.connections = make(map[string]net.Conn, 0)
 	peer.ledger = ledger.MakeLedger()
-	peer.peers.Type = "peerlist"
-	peer.peers.List = make([]string, 0)
-	peer.publicKey, peer.privateKey = rsa.KeyGen(rsa.GenerateRandomK, e)
+
+	peer.peers.Type = "peersMap"
+	peer.peers.peersMap = make(map[string]RSA.Key, 0)
+
+	k := RSA.GenerateRandomK()
+	e := 3
+	publicKey, privateKey := RSA.KeyGen(k, e)
+	peer.privateKey = privateKey
+	peer.publicKey = publicKey
 
 	/* Print address for connectivity */
 	peer.printDetails()
@@ -166,24 +171,24 @@ func (peer *Peer) read(conn net.Conn) {
 	}
 }
 
-/* Handleread method */
+/* Handle read method */
 func (peer *Peer) handleRead(temp map[string]interface{}) {
 	/* Reads the type of the object received and activates appropriate switch-statement */
 	jsonString, _ := json.Marshal(temp)
 	objectType, _ := temp["Type"]
 	switch objectType {
-	case "peerlist":
-		peers := &Msg_peerslist{}
+	case "peersMap":
+		peers := &PeersMapMsg{}
 		json.Unmarshal(jsonString, &peers)
-		peer.handlePeerList(*peers)
+		peer.handlePeersMap(*peers)
 		return
-	case "transaction":
+	case "signedTransaction":
 		transaction := &ledger.SignedTransaction{}
 		json.Unmarshal(jsonString, &transaction)
-		peer.handleTransaction(*transaction)
+		peer.handleSignedTransaction(*transaction)
 		return
-	case "newpeer":
-		newPeer := &Msg_newpeer{}
+	case "newPeer":
+		newPeer := &NewPeerMsg{}
 		json.Unmarshal(jsonString, &newPeer)
 		peer.handleNewPeer(*newPeer)
 	default:
@@ -192,62 +197,70 @@ func (peer *Peer) handleRead(temp map[string]interface{}) {
 	}
 }
 
-/* Handle peer list method */
-func (peer *Peer) handlePeerList(list Msg_peerslist) {
-	/* If peer already has a list, return */
-	if len(peer.peers.List) != 0 {
+/* Handle peer map method */
+func (peer *Peer) handlePeersMap(peersMap PeersMapMsg) {
+	/* If peer already has a map, return */
+	if len(peer.peers.peersMap) != 0 {
 		return
 	}
-	/* Otherwise store the received list */
-	peer.peers = list
-	/* If more there are more than 10 peers on list,
+
+	/* Otherwise store the received map */
+	peer.peers = peersMap //TODO: connect to last 10 peers
+	if peer.peers.peersMap == nil {
+		peer.peers.peersMap = make(map[string]RSA.Key, 0)
+	}
+
+	/* If there are more than 10 peers on list,
 	connect to the 10 peers before itself */
-	if MAX_CON < len(peer.peers.List) {
-		for index := len(peer.peers.List) - 10; index == len(peer.peers.List); index++ {
+	if MAX_CON < len(peer.peers.peersMap) {
+		/* for index := len(peer.peers.List) - 10; index == len(peer.peers.List); index++ {
 			peer.connect(peer.peers.List[index])
-		}
-		/* Otherwise connect to all peers on the list */
+		} */
+		/* Otherwise connect to all peers on the map */
 	} else {
-		for _, address := range peer.peers.List {
+		for address, _ := range peer.peers.peersMap {
 			peer.connect(address)
 		}
 	}
 	/* Then append itself */
-	peer.peers.List = append(peer.peers.List, peer.inIP+":"+peer.inPort)
+	ownAddress := peer.inIP + ":" + peer.inPort
+	peer.peers.peersMap[ownAddress] = peer.publicKey
 	/* As the peer only handles a list of peers, it is new on the network,
 	it broadcasts its presence after having connectde to the previous 10 peers */
-	newPeer := &Msg_newpeer{Type: "newpeer"}
+	newPeer := &NewPeerMsg{Type: "newPeer"}
 	newPeer.Address = peer.inIP + ":" + peer.inPort
 	jsonString, _ := json.Marshal(newPeer)
 	peer.broadcast <- jsonString
 }
 
 /* Handle new peer method */
-func (peer *Peer) handleNewPeer(newPeer Msg_newpeer) {
-	for _, address := range peer.peers.List {
-		/* If the peer is already on the local list of peers, do nothing */
-		if newPeer.Address == address {
-			return
-			/* If not, append it to the list of peers */
-		} else {
-			peer.peers.List = append(peer.peers.List, address)
-		}
+func (peer *Peer) handleNewPeer(newPeer NewPeerMsg) {
+	/* If the peer is not in the local map of peers yet, add it to the map of peers  */
+	if _, is_found := peer.peers.peersMap[newPeer.Address]; !is_found {
+		peer.peers.peersMap[newPeer.Address] = newPeer.PublicKey
 	}
 }
 
 /* Received when a transaction is made */
-func (peer *Peer) handleTransaction(transaction ledger.SignedTransaction) {
-	/* If the transaction has not been processed, then */
-	if peer.locateTransaction(transaction) == false {
-		/* add it to the list of transactionsMade and broadcast it */
-		peer.addTransaction(transaction)
-		peer.ledger.Transaction(transaction)
-		defer peer.ledger.PrintLedger()
-		jsonString, _ := json.Marshal(transaction)
-		peer.broadcast <- jsonString
+func (peer *Peer) handleSignedTransaction(signedTransaction ledger.SignedTransaction) {
+	valid := signedTransaction.VerifySignedTransaction(peer.peers.peersMap)
+
+	/* If the transaction signature is valid */
+	if valid {
+		/* and if the transaction has not been processed, then */
+		if peer.locateTransaction(signedTransaction) == false {
+			/* add it to the list of transactionsMade and broadcast it */
+			peer.addTransaction(signedTransaction)
+			peer.ledger.Transaction(signedTransaction)
+			defer peer.ledger.PrintLedger()
+			jsonString, _ := json.Marshal(signedTransaction)
+			peer.broadcast <- jsonString
+		}
+		/* If the transaction has been processed, do nothing */
+		return
+	} else {
+		fmt.Println("Signature invalid.")
 	}
-	/* If the transaction has been processed, do nothing */
-	return
 }
 
 /* Write method for client */
@@ -255,6 +268,7 @@ func (peer *Peer) write() {
 	fmt.Println("Please make transactions in the format: AMOUNT FROM TO followed by an empty character!")
 	var i int
 	for {
+		// TODO: make input more stable
 		/* Read transaction string from user */
 		fmt.Print("> ")
 		reader := bufio.NewReader(os.Stdin)
@@ -262,18 +276,27 @@ func (peer *Peer) write() {
 		if err != nil || m == "quit\n" {
 			return
 		}
+
 		/* Split the string into the amount, from and to */
 		inpString := strings.Split(m, " ")
+
 		/* Make transaction object from the details, */
 		amount, _ := strconv.Atoi(inpString[0])
-		transaction := &ledger.SignedTransaction{Type: "transaction"}
-		transaction.ID = inpString[1] + strconv.Itoa(i) + strconv.Itoa(rand.Intn(100))
-		transaction.From = inpString[1]
-		transaction.To = inpString[2]
-		transaction.Amount = amount
+		signedTransaction := &ledger.SignedTransaction{Type: "signedTransaction"}
+		signedTransaction.Transaction.ID = inpString[1] + strconv.Itoa(i) + strconv.Itoa(rand.Intn(100))
+		signedTransaction.Transaction.From = peer.peers.peersMap[inpString[1]] //TODO: is it the right key here?
+		signedTransaction.Transaction.To = peer.peers.peersMap[inpString[2]]
+		signedTransaction.Transaction.Amount = amount
+
+		/* Hash transaction with SHA-256 and get integer representation of hash, */
+		hashedMessage := RSA.ByteArrayToInt(RSA.HashMessage(signedTransaction.Transaction.ToBytes()))
+
+		/* Generate RSA signature, */
+		signature := RSA.GenerateSignature(hashedMessage, peer.privateKey)
+		signedTransaction.Signature = signature
 
 		/* and broadcast it */
-		jsonString, _ := json.Marshal(transaction)
+		jsonString, _ := json.Marshal(signedTransaction)
 		peer.broadcast <- jsonString
 		i++
 	}
@@ -296,44 +319,16 @@ func (peer *Peer) printDetails() {
 }
 
 /* Locate transaction method */
-func (peer *Peer) locateTransaction(transaction ledger.SignedTransaction) bool {
+func (peer *Peer) locateTransaction(signedTransaction ledger.SignedTransaction) bool {
 	peer.lock.Lock()
-	_, found := peer.transactionsMade[transaction.ID]
+	_, found := peer.transactionsMade[signedTransaction.Transaction.ID]
 	peer.lock.Unlock()
 	return found
 }
 
 /* Add transaction method */
-func (peer *Peer) addTransaction(transaction ledger.SignedTransaction) {
+func (peer *Peer) addTransaction(signedTransaction ledger.SignedTransaction) {
 	peer.lock.Lock()
-	peer.transactionsMade[transaction.ID] = true
+	peer.transactionsMade[signedTransaction.Transaction.ID] = true
 	peer.lock.Unlock()
 }
-
-/* TODO:
-ACCEPTDISCONNECT: remove connection from the ledger and publish the crash of the node.
-LATECOMER: when a peer is joining the network late, it must receive the list of transactionsMade.
-*/
-
-/* TODO:
-/* UPDATE STRUCTS */
-/*
-1) Update transaction such that includes a signature string
-2) Update peerlist such that it now contains a map, mapping peer addresses to public keys
-3) Update newpeer to also include a public key
-
-/* UPDATE HANDLER METHODS */
-/*
-1) When a peerlist is recieved, the handler needs to be corrected to accomodate the address to public key map
-2) When a newpeer is announced, the handler needs to accommodate the address to public key map
-3) When a transaction is instantiated by a client via. user input, the client inserts its PUBLIC KEY in FROM-field,
-the receivers PUBLIC KEY in the TO-field, and its address in the SIGNATURE field. The client then ENCRYPTS all fields
-using its PRIVATE KEY and broadcasts the transaction.
-4) When a transaction is received, the signature is DECRYPTED using all PUBLIC KEYS available in the peerlist
-map. IF a decryption results in an address corresponding to an address in the map, the transaction is verified,
-and can be made.
-*/
-
-/* UPDATE PEER INITIALIZATION */
-/* New variables and stuff.
- */

@@ -245,6 +245,10 @@ func (peer *Peer) handleNewPeer(newPeer NewPeerMsg) {
 	/* If the peer is not in the local map of peers yet, add it to the map of peers  */
 	if _, is_found := peer.peers.peersMap[newPeer.Address]; !is_found {
 		peer.peers.peersMap[newPeer.Address] = newPeer.PublicKey
+		fmt.Println("Updated peer map, now it's: ")
+		for key, value := range peer.peers.peersMap {
+			fmt.Println("[" + key + "]: " + "pK=" + value)
+		}
 	}
 }
 
@@ -272,7 +276,10 @@ func (peer *Peer) handleSignedTransaction(signedTransaction ledger.SignedTransac
 
 /* Write method for client */
 func (peer *Peer) write() {
-
+	fmt.Println("Available senders/receivers ")
+	for key, value := range peer.peers.peersMap {
+		fmt.Println("[" + key + "]: " + "pK=" + value)
+	}
 	var i int
 	for {
 		reader := bufio.NewReader(os.Stdin)

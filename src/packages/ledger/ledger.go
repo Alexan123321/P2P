@@ -21,8 +21,8 @@ import (
 type SignedTransaction struct {
 	Type      string   // signedTransaction
 	ID        string   // ID of the transaction
-	From      string   // Sender of the transaction(RSA encoded public key)
-	To        string   // Receiver of the transaction(RSA encoded public key)
+	From      string   // Sender of the transaction (public key)
+	To        string   // Receiver of the transaction (public key)
 	Amount    int      // Amount to transfer
 	Signature *big.Int // Signature of the transaction
 }

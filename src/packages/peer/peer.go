@@ -126,12 +126,14 @@ func (peer *Peer) acceptConnect() {
 		/* Accept connection that dials */
 		conn, _ := peer.ln.Accept()
 		peer.connections[conn.RemoteAddr().String()] = conn
-		fmt.Println("Got a connection from " + conn.RemoteAddr().String())
+		fmt.Println(peer.address + " got a connection from " + conn.RemoteAddr().String())
 		defer peer.ln.Close()
 
 		/* Forward local list of peers */
 		jsonString, _ := json.Marshal(peer.peers)
 		conn.Write(jsonString)
+
+		fmt.Println(peer.address + " sending " + string(jsonString) + " to " + conn.RemoteAddr().String())
 
 		/* Start reading input from the connection */
 		go peer.read(conn)
@@ -153,6 +155,7 @@ func (peer *Peer) acceptDisconnect(conn net.Conn) {
 
 /* Read method of server */
 func (peer *Peer) read(conn net.Conn) {
+	fmt.Println(peer.address + " received message from " + conn.RemoteAddr().String())
 	defer conn.Close()
 	/* Decode every message into a string-interface map */
 	var temp map[string]interface{}
@@ -171,6 +174,7 @@ func (peer *Peer) read(conn net.Conn) {
 		}
 		/* Forward the map to the handleRead method */
 		peer.handleRead(temp)
+		fmt.Println(temp)
 	}
 }
 
@@ -213,9 +217,15 @@ func (peer *Peer) handlePeersMap(peersMap PeersMapMsg) {
 	/* If there are more than 10 peers on list,
 	connect to the 10 peers before itself */
 	if MAX_CON < len(peer.peers.peersMap) {
-		/* for index := len(peer.peers.List) - 10; index == len(peer.peers.List); index++ {
-			peer.connect(peer.peers.List[index]) //TODO: connect to last 10 peers
-		} */
+		diff := len(peer.peers.peersMap) - MAX_CON
+		i := 1
+		for address, _ := range peer.peers.peersMap {
+			if i >= diff {
+				peer.connect(address)
+			}
+			i++
+		}
+
 		/* Otherwise connect to all peers on the map */
 	} else {
 		for address, _ := range peer.peers.peersMap {

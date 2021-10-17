@@ -13,10 +13,14 @@ section 5.2.1 by Ivan Damgaard, Jesper Buus Nielsen & Claudio Orlandi.
 package RSA
 
 import (
+	"after_feedback/src/packages/ledger"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"math/big"
+	"strconv"
 )
 
 /* Key struct */
@@ -98,16 +102,33 @@ func KeyGen(K *big.Int, e int) (Key, Key) {
 
 /* Encrypt method */
 func Encrypt(M *big.Int, privateKey Key) *big.Int {
-	/* Generate ciphertext using the public key*/
+	/* Generate ciphertext using the private key*/
 	c := new(big.Int).Exp(M, privateKey.E_or_d, privateKey.N)
 	return c
 }
 
 /* Decrypt method */
-func Decrypt(c *big.Int, privateKey Key) *big.Int {
-	/* Decrypt the message using the private key */
-	m := new(big.Int).Exp(c, privateKey.E_or_d, privateKey.N)
+func Decrypt(c *big.Int, publicKey Key) *big.Int {
+	/* Decrypt the message using the public key */
+	m := new(big.Int).Exp(c, publicKey.E_or_d, publicKey.N)
 	return m
+}
+
+/* Computes the hash for some of the fields in a signed transaction */
+func ComputeTransactionHash(signedTransaction ledger.SignedTransaction) []byte {
+	transactionHash := sha256.New()
+	AddToHash(&transactionHash, signedTransaction.ID)
+	AddToHash(&transactionHash, signedTransaction.From)
+	AddToHash(&transactionHash, signedTransaction.To)
+	AddToHash(&transactionHash, strconv.Itoa(signedTransaction.Amount))
+	transactionHashSum := transactionHash.Sum(nil)
+	return transactionHashSum[:]
+}
+
+func AddToHash(h *hash.Hash, str string) {
+	if _, err := (*h).Write([]byte(str)); err != nil {
+		panic(err)
+	}
 }
 
 /* Turn a byte array into an integer */
@@ -115,20 +136,46 @@ func ByteArrayToInt(inputBytes []byte) *big.Int {
 	return new(big.Int).SetBytes(inputBytes[:])
 }
 
-/* Verify signature */
-func VerifySignature(hashedMessage *big.Int, ciphertext *big.Int, privateKeyString string) bool {
-	/* Decode key */
+/* Generate RSA signature */
+func GenerateSignature(signedTransaction ledger.SignedTransaction, privateKeyString string) string {
+	/* Hash transaction with SHA-256 and get integer representation of hash, */
+	transactionHash := ByteArrayToInt(ComputeTransactionHash(signedTransaction))
+
+	/* Turn the string-encoded private key into Key */
 	privateKey := ToKey(privateKeyString)
 
+	/* Encrypt the hashed transaction with the private key */
+	ciphertext := Encrypt(transactionHash, privateKey)
+
+	/* Pad ciphertext with zeros */
+	ciphertextInBytes := ciphertext.Bytes()
+	keyInBytes := privateKey.N.Bytes()
+	if len(ciphertextInBytes) < len(keyInBytes) {
+		padding := make([]byte, len(keyInBytes)-len(ciphertextInBytes))
+		ciphertextInBytes = append(padding, ciphertextInBytes...)
+	}
+	signature := new(big.Int).SetBytes(ciphertextInBytes)
+	return signature.String()
+}
+
+/* Verify signature */
+func VerifySignature(signedTransaction ledger.SignedTransaction) bool {
+	/* Hash transaction with SHA-256 and get integer representation of hash, */
+	transactionHash := ByteArrayToInt(ComputeTransactionHash(signedTransaction))
+
+	/* Convert the signature to a big.Int */
+	signature, _ := new(big.Int).SetString(signedTransaction.Signature, 10)
+
+	/* Turn the string-encoded private key into Key */
+	publicKey := ToKey(signedTransaction.From)
+
 	/* Decrypt signature */
-	decryptedHashedMessage := Decrypt(ciphertext, privateKey) //TODO: make sure right key
+	decryptedHashedMessage := Decrypt(signature, publicKey)
 
 	/* Compare the hashed message and the hash of the message from the signature */
-	if hashedMessage.Cmp(decryptedHashedMessage) == 0 {
-		fmt.Println("Message hash and decrypted message hash match.")
+	if transactionHash.Cmp(decryptedHashedMessage) == 0 {
 		return true
 	} else {
-		fmt.Println("Message hash and decrypted message hash do not match.")
 		return false
 	}
 }

@@ -29,7 +29,7 @@ const e = 3
 /* Message struct containing list of peers */
 type PeersMapMsg struct {
 	Type     string
-	peersMap map[string]string
+	peersMap map[string]string // address -> public key map
 }
 
 /* Message struct containing address of new peer */
@@ -45,6 +45,7 @@ type Peer struct {
 	outPort          string
 	inIP             string
 	inPort           string
+	address          string
 	broadcast        chan []byte
 	ln               net.Listener
 	transactionsMade map[string]bool
@@ -70,6 +71,7 @@ func (peer *Peer) StartPeer() {
 	peer.ln = ln
 	peer.inIP = ip
 	peer.inPort = port
+	peer.address = ip + ":" + port
 	peer.broadcast = make(chan []byte)
 	peer.transactionsMade = make(map[string]bool)
 	peer.connections = make(map[string]net.Conn, 0)
@@ -86,8 +88,7 @@ func (peer *Peer) StartPeer() {
 
 	/* Print address for connectivity */
 	peer.printDetails()
-	fmt.Println("address: " + peer.inIP + ":" + peer.inPort + " has public key " + peer.publicKey)
-	fmt.Println("address: " + peer.inIP + ":" + peer.inPort + " has private key " + peer.privateKey)
+	fmt.Println("[" + peer.address + "], publicKey=" + peer.publicKey)
 
 	/* Initialize connection and routines */
 	peer.connect(peer.outIP + ":" + peer.outPort)
@@ -131,8 +132,6 @@ func (peer *Peer) acceptConnect() {
 		/* Forward local list of peers */
 		jsonString, _ := json.Marshal(peer.peers)
 		conn.Write(jsonString)
-
-		fmt.Println(peer.inIP + ": " + peer.inPort + " sending map of peers " + string(jsonString) + " to " + conn.RemoteAddr().String())
 
 		/* Start reading input from the connection */
 		go peer.read(conn)
@@ -204,21 +203,18 @@ func (peer *Peer) handleRead(temp map[string]interface{}) {
 /* Handle peer map method */
 func (peer *Peer) handlePeersMap(peersMap PeersMapMsg) {
 	/* If peer already has a map, return */
-	/* if len(peer.peers.peersMap) != 0 {
+	if peer.peers.peersMap != nil {
 		return
-	} */
+	}
 
 	/* Otherwise store the received map */
-	peer.peers = peersMap //TODO: connect to last 10 peers
-	if peer.peers.peersMap == nil {
-		peer.peers.peersMap = make(map[string]string, 0) //TODO:i think this is unnecessary
-	}
+	peer.peers = peersMap
 
 	/* If there are more than 10 peers on list,
 	connect to the 10 peers before itself */
 	if MAX_CON < len(peer.peers.peersMap) {
 		/* for index := len(peer.peers.List) - 10; index == len(peer.peers.List); index++ {
-			peer.connect(peer.peers.List[index])
+			peer.connect(peer.peers.List[index]) //TODO: connect to last 10 peers
 		} */
 		/* Otherwise connect to all peers on the map */
 	} else {
@@ -227,9 +223,15 @@ func (peer *Peer) handlePeersMap(peersMap PeersMapMsg) {
 		}
 	}
 
+	fmt.Println("Before:")
+	peer.printPeersMap()
+
 	/* Then append itself */
 	ownAddress := peer.inIP + ":" + peer.inPort
 	peer.peers.peersMap[ownAddress] = peer.publicKey
+
+	fmt.Println("After:")
+	peer.printPeersMap()
 
 	/* As the peer only handles a list of peers, it is new on the network,
 	it broadcasts its presence after having connected to the previous 10 peers */
@@ -245,16 +247,12 @@ func (peer *Peer) handleNewPeer(newPeer NewPeerMsg) {
 	/* If the peer is not in the local map of peers yet, add it to the map of peers  */
 	if _, is_found := peer.peers.peersMap[newPeer.Address]; !is_found {
 		peer.peers.peersMap[newPeer.Address] = newPeer.PublicKey
-		fmt.Println("Updated peer map, now it's: ")
-		for key, value := range peer.peers.peersMap {
-			fmt.Println("[" + key + "]: " + "pK=" + value)
-		}
 	}
 }
 
 /* Received when a transaction is made */
 func (peer *Peer) handleSignedTransaction(signedTransaction ledger.SignedTransaction) {
-	valid := signedTransaction.VerifySignedTransaction(peer.peers.peersMap)
+	valid := RSA.VerifySignature(signedTransaction)
 
 	/* If the transaction signature is valid */
 	if valid {
@@ -276,35 +274,32 @@ func (peer *Peer) handleSignedTransaction(signedTransaction ledger.SignedTransac
 
 /* Write method for client */
 func (peer *Peer) write() {
-	fmt.Println("Available senders/receivers ")
-	for key, value := range peer.peers.peersMap {
-		fmt.Println("[" + key + "]: " + "pK=" + value)
-	}
 	var i int
 	for {
+		/* Read transaction string from user */
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Println("---------Please input transaction----------")
+		m, err := reader.ReadString('\n')
+		if err != nil || m == "quit\n" {
+			return
+		}
 
-		fmt.Println("Enter amount: ")
-		amount, _ := reader.ReadString('\n')
-		amount = strings.Replace(amount, "\n", "", -1)
-		fmt.Println("Enter sender's address: ")
-		senderAddress, _ := reader.ReadString('\n')
-		senderAddress = strings.Replace(senderAddress, "\n", "", -1)
-		fmt.Println("Enter receiver's address: ")
-		receiverAddress, _ := reader.ReadString('\n')
-		receiverAddress = strings.Replace(receiverAddress, "\n", "", -1)
+		/* Split the string into the amount, from and to */
+		inpString := strings.Split(m, " ")
+		amount, _ := strconv.Atoi(inpString[0])
+		senderAddress := inpString[1]
+		receiverAddress := inpString[2]
 
 		/* Make transaction object from the details, */
 		signedTransaction := &ledger.SignedTransaction{Type: "signedTransaction"}
 		signedTransaction.ID = senderAddress + strconv.Itoa(i) + strconv.Itoa(rand.Intn(100))
-		signedTransaction.From = peer.peers.peersMap[senderAddress]
+		signedTransaction.From = peer.publicKey
 		signedTransaction.To = peer.peers.peersMap[receiverAddress]
-		signedTransaction.Amount, _ = strconv.Atoi(amount)
+		fmt.Println("Public key of receiver: " + signedTransaction.To)
 
-		/* Generate RSA signature, */
-		signature := signedTransaction.GenerateSignature(peer.privateKey) //TODO: is it the right key here?
-		signedTransaction.Signature = signature
+		signedTransaction.Amount = amount
+
+		/* Generate RSA signature for the transaction using the private key of the sender, */
+		signedTransaction.Signature = RSA.GenerateSignature(*signedTransaction, peer.privateKey)
 
 		/* and broadcast it */
 		jsonString, _ := json.Marshal(signedTransaction)
@@ -329,10 +324,10 @@ func (peer *Peer) printDetails() {
 	fmt.Println("Listening on address " + ip + ":" + port)
 }
 
-func printPeersMap(peersMap map[string]RSA.Key) {
-	for k, v := range peersMap {
+func (peer *Peer) printPeersMap() {
+	for k, v := range peer.peers.peersMap {
 		fmt.Println("Address: " + k)
-		fmt.Println("Public key of " + k + ":" + v.ToString())
+		fmt.Println("Public key of " + k + ":" + v)
 	}
 }
 

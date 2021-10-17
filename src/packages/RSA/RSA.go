@@ -14,7 +14,6 @@ package RSA
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -28,11 +27,11 @@ type Key struct {
 
 /* Encode key to string */
 func (key *Key) ToString() string {
-	out, err := json.Marshal(key)
+	keyString, err := json.Marshal(key)
 	if err != nil {
 		panic(err)
 	}
-	return string(out)
+	return string(keyString)
 }
 
 /* Decode string to key */
@@ -98,9 +97,9 @@ func KeyGen(K *big.Int, e int) (Key, Key) {
 }
 
 /* Encrypt method */
-func Encrypt(M *big.Int, publicKey Key) *big.Int {
+func Encrypt(M *big.Int, privateKey Key) *big.Int {
 	/* Generate ciphertext using the public key*/
-	c := new(big.Int).Exp(M, publicKey.E_or_d, publicKey.N)
+	c := new(big.Int).Exp(M, privateKey.E_or_d, privateKey.N)
 	return c
 }
 
@@ -111,40 +110,18 @@ func Decrypt(c *big.Int, privateKey Key) *big.Int {
 	return m
 }
 
-/* Hash message */
-func HashMessage(m []byte) []byte {
-	hm := sha256.Sum256(m)
-	return hm[:]
-}
-
 /* Turn a byte array into an integer */
 func ByteArrayToInt(inputBytes []byte) *big.Int {
 	return new(big.Int).SetBytes(inputBytes[:])
 }
 
-/* Generate RSA signature */
-func GenerateSignature(hashedMessage *big.Int, publicKey Key) *big.Int {
-	/* Encrypt the hashed message with the public key */
-	ciphertext := Encrypt(hashedMessage, publicKey)
-
-	/* Pad ciphertext with zeros */
-	ciphertextInBytes := ciphertext.Bytes()
-	keyInBytes := publicKey.N.Bytes()
-	if len(ciphertextInBytes) < len(keyInBytes) {
-		padding := make([]byte, len(keyInBytes)-len(ciphertextInBytes))
-		ciphertextInBytes = append(padding, ciphertextInBytes...)
-	}
-
-	return new(big.Int).SetBytes(ciphertextInBytes)
-}
-
 /* Verify signature */
-func VerifySignature(hashedMessage *big.Int, ciphertext *big.Int, publicKeyString string) bool {
+func VerifySignature(hashedMessage *big.Int, ciphertext *big.Int, privateKeyString string) bool {
 	/* Decode key */
-	publicKey := ToKey(publicKeyString)
+	privateKey := ToKey(privateKeyString)
 
 	/* Decrypt signature */
-	decryptedHashedMessage := Decrypt(ciphertext, publicKey) //TODO: make sure right key
+	decryptedHashedMessage := Decrypt(ciphertext, privateKey) //TODO: make sure right key
 
 	/* Compare the hashed message and the hash of the message from the signature */
 	if hashedMessage.Cmp(decryptedHashedMessage) == 0 {

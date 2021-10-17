@@ -9,37 +9,76 @@ package ledger
 
 import (
 	"after_feedback/src/packages/RSA"
-	"bytes"
-	"encoding/gob"
+	"crypto/sha256"
 	"fmt"
-	"log"
+	"hash"
 	"math/big"
 	"strconv"
 	"sync"
 )
 
-type Transaction struct {
-	ID     string // ID of the transaction
-	From   string // Sender of the transaction(RSA encoded public key)
-	To     string // Receiver of the transaction(RSA encoded public key)
-	Amount int    // Amount to transfer
-}
-
 /* Signed transaction struct */
 type SignedTransaction struct {
-	Type        string      // signedTransaction
-	Transaction Transaction // Transaction
-	Signature   string      // Signature of the transaction
+	Type      string   // signedTransaction
+	ID        string   // ID of the transaction
+	From      string   // Sender of the transaction(RSA encoded public key)
+	To        string   // Receiver of the transaction(RSA encoded public key)
+	Amount    int      // Amount to transfer
+	Signature *big.Int // Signature of the transaction
 }
 
-func (transaction *Transaction) ToBytes() []byte {
-	buf := bytes.Buffer{}
-	enc := gob.NewEncoder(&buf)
-	err := enc.Encode(transaction)
-	if err != nil {
-		log.Println(err.Error())
+/* Computes the hash for some of the fields in a signed transaction */
+func (signedTransaction SignedTransaction) ComputeHash() []byte {
+	transactionHash := sha256.New()
+	AddToHash(&transactionHash, signedTransaction.ID)
+	AddToHash(&transactionHash, signedTransaction.From)
+	AddToHash(&transactionHash, signedTransaction.To)
+	AddToHash(&transactionHash, strconv.Itoa(signedTransaction.Amount))
+	transactionHashSum := transactionHash.Sum(nil)
+	return transactionHashSum[:]
+}
+
+func AddToHash(h *hash.Hash, str string) {
+	if _, err := (*h).Write([]byte(str)); err != nil {
+		panic(err)
 	}
-	return buf.Bytes()
+}
+
+/* Generate RSA signature */
+func (signedTransaction SignedTransaction) GenerateSignature(privateKeyString string) *big.Int {
+	/* Hash transaction with SHA-256 and get integer representation of hash, */
+	hashedMessage := RSA.ByteArrayToInt(signedTransaction.ComputeHash())
+
+	/* Turn the string-encoded private key into key */
+	privateKey := RSA.ToKey(privateKeyString)
+
+	/* Encrypt the hashed message with the private key */
+	ciphertext := RSA.Encrypt(hashedMessage, privateKey)
+
+	/* Pad ciphertext with zeros */
+	ciphertextInBytes := ciphertext.Bytes()
+	keyInBytes := privateKey.N.Bytes()
+	if len(ciphertextInBytes) < len(keyInBytes) {
+		padding := make([]byte, len(keyInBytes)-len(ciphertextInBytes))
+		ciphertextInBytes = append(padding, ciphertextInBytes...)
+	}
+
+	return new(big.Int).SetBytes(ciphertextInBytes)
+}
+
+func (signedTransaction *SignedTransaction) VerifySignedTransaction(peersMap map[string]string) bool {
+	/* Hash transaction with SHA-256 and get integer representation of hash, */
+	hashedMessage := RSA.ByteArrayToInt(signedTransaction.ComputeHash())
+
+	/* Verify RSA signature */
+	for _, publicKey := range peersMap {
+		fmt.Println("Verifying for key " + publicKey)
+		valid := RSA.VerifySignature(hashedMessage, signedTransaction.Signature, publicKey)
+		if valid {
+			return true
+		}
+	}
+	return false
 }
 
 /* Ledger struct */
@@ -60,8 +99,8 @@ func MakeLedger() *Ledger {
 func (ledger *Ledger) Transaction(signedTransaction SignedTransaction) {
 	ledger.lock.Lock()
 	defer ledger.lock.Unlock()
-	ledger.Accounts[signedTransaction.Transaction.From] -= signedTransaction.Transaction.Amount
-	ledger.Accounts[signedTransaction.Transaction.To] += signedTransaction.Transaction.Amount
+	ledger.Accounts[signedTransaction.From] -= signedTransaction.Amount
+	ledger.Accounts[signedTransaction.To] += signedTransaction.Amount
 }
 
 /* Print ledger method */
@@ -71,22 +110,4 @@ func (ledger *Ledger) PrintLedger() {
 		fmt.Println("Account name: " + account + " amount: " + strconv.Itoa(amount))
 	}
 	ledger.lock.Unlock()
-}
-
-func (signedTransaction *SignedTransaction) VerifySignedTransaction(peersMap map[string]string) bool {
-	/* Hash transaction with SHA-256 and get integer representation of hash, */
-	hashedMessage := RSA.ByteArrayToInt(RSA.HashMessage(signedTransaction.Transaction.ToBytes()))
-
-	/* Convert the signature to a big.Int */
-	signature := new(big.Int).SetBytes([]byte(signedTransaction.Signature))
-
-	/* Verify RSA signature */
-	for _, publicKey := range peersMap {
-		fmt.Println("Verifying for key " + publicKey)
-		valid := RSA.VerifySignature(hashedMessage, signature, publicKey)
-		if valid {
-			return true
-		}
-	}
-	return false
 }

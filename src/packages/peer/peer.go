@@ -86,7 +86,8 @@ func (peer *Peer) StartPeer() {
 
 	/* Print address for connectivity */
 	peer.printDetails()
-	fmt.Println("address: " + peer.inIP + ":" + peer.inPort + "has key " + peer.publicKey)
+	fmt.Println("address: " + peer.inIP + ":" + peer.inPort + " has public key " + peer.publicKey)
+	fmt.Println("address: " + peer.inIP + ":" + peer.inPort + " has private key " + peer.privateKey)
 
 	/* Initialize connection and routines */
 	peer.connect(peer.outIP + ":" + peer.outPort)
@@ -131,7 +132,7 @@ func (peer *Peer) acceptConnect() {
 		jsonString, _ := json.Marshal(peer.peers)
 		conn.Write(jsonString)
 
-		fmt.Println(peer.inIP + ": " + peer.inPort + " sending map of peers " + string(jsonString))
+		fmt.Println(peer.inIP + ": " + peer.inPort + " sending map of peers " + string(jsonString) + " to " + conn.RemoteAddr().String())
 
 		/* Start reading input from the connection */
 		go peer.read(conn)
@@ -225,11 +226,13 @@ func (peer *Peer) handlePeersMap(peersMap PeersMapMsg) {
 			peer.connect(address)
 		}
 	}
+
 	/* Then append itself */
 	ownAddress := peer.inIP + ":" + peer.inPort
 	peer.peers.peersMap[ownAddress] = peer.publicKey
+
 	/* As the peer only handles a list of peers, it is new on the network,
-	it broadcasts its presence after having connectde to the previous 10 peers */
+	it broadcasts its presence after having connected to the previous 10 peers */
 	newPeer := &NewPeerMsg{Type: "newPeer"}
 	newPeer.Address = peer.inIP + ":" + peer.inPort
 	newPeer.PublicKey = peer.publicKey
@@ -269,36 +272,32 @@ func (peer *Peer) handleSignedTransaction(signedTransaction ledger.SignedTransac
 
 /* Write method for client */
 func (peer *Peer) write() {
-	fmt.Println("Please make transactions in the format: AMOUNT FROM TO followed by an empty character!")
+
 	var i int
 	for {
-		// TODO: make input more stable
-		/* Read transaction string from user */
-		fmt.Print("> ")
 		reader := bufio.NewReader(os.Stdin)
-		m, err := reader.ReadString('\n')
-		if err != nil || m == "quit\n" {
-			return
-		}
+		fmt.Println("---------Please input transaction----------")
 
-		/* Split the string into the amount, from and to */
-		inpString := strings.Split(m, " ")
+		fmt.Println("Enter amount: ")
+		amount, _ := reader.ReadString('\n')
+		amount = strings.Replace(amount, "\n", "", -1)
+		fmt.Println("Enter sender's address: ")
+		senderAddress, _ := reader.ReadString('\n')
+		senderAddress = strings.Replace(senderAddress, "\n", "", -1)
+		fmt.Println("Enter receiver's address: ")
+		receiverAddress, _ := reader.ReadString('\n')
+		receiverAddress = strings.Replace(receiverAddress, "\n", "", -1)
 
 		/* Make transaction object from the details, */
-		amount, _ := strconv.Atoi(inpString[0])
 		signedTransaction := &ledger.SignedTransaction{Type: "signedTransaction"}
-		signedTransaction.Transaction.ID = inpString[1] + strconv.Itoa(i) + strconv.Itoa(rand.Intn(100))
-		signedTransaction.Transaction.From = peer.peers.peersMap[inpString[1]] //TODO: is it the right key here?
-		signedTransaction.Transaction.To = peer.peers.peersMap[inpString[2]]
-		signedTransaction.Transaction.Amount = amount
-
-		/* Hash transaction with SHA-256 and get integer representation of hash, */
-		hashedMessage := RSA.ByteArrayToInt(RSA.HashMessage(signedTransaction.Transaction.ToBytes()))
+		signedTransaction.ID = senderAddress + strconv.Itoa(i) + strconv.Itoa(rand.Intn(100))
+		signedTransaction.From = peer.peers.peersMap[senderAddress]
+		signedTransaction.To = peer.peers.peersMap[receiverAddress]
+		signedTransaction.Amount, _ = strconv.Atoi(amount)
 
 		/* Generate RSA signature, */
-		privateKey := RSA.ToKey(peer.privateKey)
-		signature := RSA.GenerateSignature(hashedMessage, privateKey)
-		signedTransaction.Signature = signature.String()
+		signature := signedTransaction.GenerateSignature(peer.privateKey) //TODO: is it the right key here?
+		signedTransaction.Signature = signature
 
 		/* and broadcast it */
 		jsonString, _ := json.Marshal(signedTransaction)
@@ -333,7 +332,7 @@ func printPeersMap(peersMap map[string]RSA.Key) {
 /* Locate transaction method */
 func (peer *Peer) locateTransaction(signedTransaction ledger.SignedTransaction) bool {
 	peer.lock.Lock()
-	_, found := peer.transactionsMade[signedTransaction.Transaction.ID]
+	_, found := peer.transactionsMade[signedTransaction.ID]
 	peer.lock.Unlock()
 	return found
 }
@@ -341,6 +340,6 @@ func (peer *Peer) locateTransaction(signedTransaction ledger.SignedTransaction) 
 /* Add transaction method */
 func (peer *Peer) addTransaction(signedTransaction ledger.SignedTransaction) {
 	peer.lock.Lock()
-	peer.transactionsMade[signedTransaction.Transaction.ID] = true
+	peer.transactionsMade[signedTransaction.ID] = true
 	peer.lock.Unlock()
 }

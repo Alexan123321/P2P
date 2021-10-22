@@ -10,16 +10,13 @@ package peer
 import (
 	"after_feedback/src/packages/RSA"
 	"after_feedback/src/packages/ledger"
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"math/rand"
 	"net"
-	"os"
 	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -276,28 +273,25 @@ func (peer *Peer) handleSignedTransaction(signedTransaction ledger.SignedTransac
 
 /* Write method for client */
 func (peer *Peer) write() {
-	fmt.Println("Please make transactions in the format: AMOUNT FROM TO followed by an empty character!")
 	var i int
+	var amount string
+	var senderAddress string
+	var receiverAddress string
 	for {
-		/* Read transaction string from user */
-		reader := bufio.NewReader(os.Stdin)
-		m, err := reader.ReadString('\n')
-		if err != nil || m == "quit\n" {
-			return
-		}
-
-		/* Split the string into the amount, from and to */
-		inpString := strings.Split(m, " ")
-		amount, _ := strconv.Atoi(inpString[0])
-		senderAddress := inpString[1]
-		receiverAddress := inpString[2]
+		/* Read transaction from user */
+		fmt.Println("Amount to send: ")
+		fmt.Scanln(&amount)
+		fmt.Println("Sender's address: ")
+		fmt.Scanln(&senderAddress)
+		fmt.Println("Receiver's address: ")
+		fmt.Scanln(&receiverAddress)
 
 		/* Make transaction object from the details, */
 		signedTransaction := &ledger.SignedTransaction{Type: "signedTransaction"}
 		signedTransaction.ID = senderAddress + strconv.Itoa(i) + strconv.Itoa(rand.Intn(100))
 		signedTransaction.From = peer.publicKey
 		signedTransaction.To = peer.peers.PeersMap[receiverAddress]
-		signedTransaction.Amount = amount
+		signedTransaction.Amount, _ = strconv.Atoi(amount)
 
 		/* Generate RSA signature for the transaction using the private key of the sender, */
 		signedTransaction.Signature = RSA.GenerateSignature(*signedTransaction, peer.privateKey)

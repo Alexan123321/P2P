@@ -255,6 +255,10 @@ func (peer *Peer) handleSignedTransaction(signedTransaction ledger.SignedTransac
 
 	/* If the transaction signature is valid */
 	if valid {
+		if signedTransaction.Amount < 0 {
+			fmt.Println("Amount cannot be negative")
+			return
+		}
 		/* and if the transaction has not been processed, then */
 		if peer.locateTransaction(signedTransaction) == false {
 			/* add it to the list of transactionsMade and broadcast it */
